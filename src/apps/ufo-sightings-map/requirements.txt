@@ -1,0 +1,11 @@
+dash
+dash-bootstrap-components
+pandas
+plotly
+databricks-sql-connector
+databricks-sdk==0.40.0
+python-dotenv
+dash-ag-grid
+keplergl==0.3.2
+numpy
+h3

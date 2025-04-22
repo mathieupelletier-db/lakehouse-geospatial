@@ -1,0 +1,21 @@
+command: [
+  "python",
+  "app.py"
+]
+env:
+- name: "DATABRICKS_WAREHOUSE_ID"
+  valueFrom: "sql_warehouse"
+- name: "DATABRICKS_ENDPOINT"
+  valueFrom: "serving_endpoint"
+# - name: "DATABRICKS_WAREHOUSE_ID"
+#   value: "93e52518401da65a"
+- name: DATABRICKS_SERVER_HOSTNAME
+  value: e2-demo-field-eng.cloud.databricks.com
+- name: DATABRICKS_HOST
+  value: https://e2-demo-field-eng.cloud.databricks.com/
+- name: "MAPBOX_API_KEY"
+  valueFrom: "MAPBOX_ACCESS_TOKEN"
+- name: "MAPBOX_ACCESS_TOKEN"
+  valueFrom: "MAPBOX_ACCESS_TOKEN"
+- name: "DATABRICKS_TOKEN"
+  valueFrom: "DATABRICKS_TOKEN"
