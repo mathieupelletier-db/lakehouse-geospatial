@@ -37,31 +37,34 @@ visState = {
             "id": "h3_layer_1",
             "type": "hexagonId",
             "config": {
-                "dataId": "all_species",  # Reference to the dataset
+                "dataId": "all_counties",
                 "label": "H3 Layer",
                 "columns": {
-                    "hex_id": "hex_id",  # Column containing H3 indices
+                    "hex_id": "hex_id",
                 },
                 "isVisible": True,
                 "visConfig": {
-                    "opacity": 0.25,  # Opacity of the hexagons
-                },
+                    "opacity": 0.25,
+                "colorRange": {
+                    "name": "ColorBrewer YlOrRd",
+                    "type": "sequential",
+                    "category": "ColorBrewer",
+                    "colors": [
+                        "#ffffb2", "#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"
+                    ]
+                }                },
                 "colorField": {
-                    "name": "count",  # Field to color by
+                    "name": "sightings",
                     "type": "integer"
                 },
-                "colorScale": "quantile" 
-            },
+                "colorScale": "quantile"
+
+            }
         }
     ],
-    "interactionConfig": {
-        # "tooltip": {
-        #     "fieldsToShow": {
-        #         "all_species": ["hex_id"],  # Fields to show in tooltips
-        #     },
-        # }
-    }
+    "interactionConfig": {}
 }
+
 
 # Set up the app
 app = dash.Dash(__name__)
@@ -81,10 +84,7 @@ def sqlQuery(query: str) -> pd.DataFrame:
     with sql.connect(
         server_hostname=cfg.host,
         http_path=f"/sql/1.0/warehouses/{os.getenv('DATABRICKS_WAREHOUSE_ID')}",
-        credentials_provider=lambda: cfg.authenticate,
-        #http_path=f"/sql/1.0/warehouses/{os.getenv('DATABRICKS_WAREHOUSE_ID')}",
-        #server_hostname="e2-demo-field-eng.cloud.databricks.com",
-        #access_token=os.getenv("DATABRICKS_TOKEN")
+        credentials_provider=lambda: cfg.authenticate
     ) as connection:
         with connection.cursor() as cursor:
             cursor.execute(query)
@@ -155,12 +155,12 @@ def fmapi_stream(selected_species):
     stream_complete = True
 
 # Fetch the all species data
-def fetch_all_species_data():
+def fetch_all_counties_data():
     stime = dt.datetime.now()
     try:
-        data = sqlQuery("""SELECT h3_h3tostring(h3_toparent(h3, 5)) as hex_id, array_distinct(array_agg(COMNAME)) as species, size(array_distinct(array_agg(COMNAME))) as count
-                           FROM justinm.geospatial.doi_species_explode
-                           GROUP BY hex_id""")
+        data = sqlQuery("""SELECT h3_h3tostring(h3.cellid) as hex_id, county, sightings, id
+                            FROM mpelletier.summit.enriched_counties;
+                        """)
         # Convert any ndarray columns to lists
         for col in data.columns:
             if isinstance(data[col].iloc[0], np.ndarray):
@@ -168,11 +168,11 @@ def fetch_all_species_data():
     except Exception as e:
         print(f"An error occurred in querying data: {str(e)}")
         data = pd.DataFrame()
-    print(f"ALL SPECIES QUERY TOOK:    {dt.datetime.now() - stime}")
+    print(f"ALL COUNTIES QUERY TOOK:    {dt.datetime.now() - stime}")
     return data
 
 # Fetch the specific species data
-def fetch_specific_species_data(selected_species):
+def fetch_specific_counties_data(selected_species):
     try:
         print(selected_species) 
         stime = dt.datetime.now()
@@ -211,14 +211,6 @@ def fetch_specific_species_data(selected_species):
                 h3data[col] = h3data[col].apply(list)
 
         stime = dt.datetime.now()
-        # query = f"""SELECT ST_ASTEXT(ST_SIMPLIFY(ST_GEOMFROMTEXT(wkt_polygon),0.001)) as wkt, COMNAME as species
-        #                     FROM justinm.geospatial.doi_species_h3_array
-        #                     WHERE COMNAME = '{selected_species.replace("'","''")}'
-        #                     """
-        # query = f"""SELECT justinm.geospatial.simplify_wkt(wkt,0.01) as wkt, COMNAME as species
-        #                     FROM justinm.geospatial.doi_species_h3_array
-        #                     WHERE COMNAME = '{selected_species.replace("'","''")}'
-        #                     """
         query = f"""SELECT wkt_polygon as wkt, COMNAME as species
                             FROM justinm.geospatial.doi_species_h3_array
                             WHERE COMNAME = '{selected_species.replace("'","''")}'
@@ -235,10 +227,9 @@ def fetch_specific_species_data(selected_species):
         polygondata = pd.DataFrame()
     return h3data, polygondata, zoom
 
-# Fetch the distinct species data
-def fetch_distinct_species_data():
+def fetch_distinct_counties_data():
     try:
-        data = sqlQuery("SELECT DISTINCT COMNAME as species FROM justinm.geospatial.doi_species_wkt_array ORDER BY species")
+        data = sqlQuery("SELECT DISTINCT county FROM mpelletier.summit.enriched_ufo_sightings ORDER BY county")
         # Convert any ndarray columns to lists
         for col in data.columns:
             if isinstance(data[col].iloc[0], np.ndarray):
@@ -254,9 +245,7 @@ def create_kepler_map(first_data, filepath="kepler_map.html"):
     print("CREATE KEPLER MAP...")
     map_ = KeplerGl(height=600, use_arrow=True)
 
-    map_.add_data(data=first_data, name="all_species")
-    # map_.add_data(data=second_data, name="model_personalized_lookup")
-    # map_.add_data(data=third_data, name="all_species")
+    map_.add_data(data=first_data, name="all_counties")
 
     config = {
         "mapState": mapState,
@@ -276,8 +265,8 @@ def create_new_kepler_map(first_data, second_data, zoom, filepath="kepler_map.ht
     average_longitude = first_data['longitude'].mean()
 
     map_ = KeplerGl(height=600, use_arrow=True)
-    map_.add_data(data=first_data, name="all_species")
-    map_.add_data(data=second_data, name="species_polygons")
+    map_.add_data(data=first_data, name="all_counties")
+    map_.add_data(data=second_data, name="counties_polygons")
 
     mapState['latitude'] = average_latitude
     mapState['longitude'] = average_longitude
@@ -288,7 +277,7 @@ def create_new_kepler_map(first_data, second_data, zoom, filepath="kepler_map.ht
                     "id": "polygon-layer",
                     "type": "geojson",
                     "config": {
-                        "dataId": "species_polygons",
+                        "dataId": "counties_polygons",
                         "label": "WKT Polygons",
                         "color": [30, 150, 190],
                         "columns": {"geojson": "wkt"},
@@ -314,11 +303,11 @@ def create_new_kepler_map(first_data, second_data, zoom, filepath="kepler_map.ht
     # print(f"TIME TO NEW MAP: {dt.datetime.now() - stime}")
     return filepath
 
-all_species_data = fetch_all_species_data()
-distinct_species_data = fetch_distinct_species_data()
+all_counties_data = fetch_all_counties_data()
+distinct_counties_data = fetch_distinct_counties_data()
 
 # Generate the map and save to HTML
-map_filepath = create_kepler_map(all_species_data)
+map_filepath = create_kepler_map(all_counties_data)
 
 # Read the HTML content
 with open(map_filepath, "r") as f:
@@ -328,8 +317,8 @@ app.layout = html.Div(
     [
         dcc.Dropdown(
             id='user-dropdown',
-            options=[{'label': species, 'value': species} for species in distinct_species_data['species'].unique()],
-            placeholder='Select a species',
+            options=[{'label': county, 'value': county} for county in distinct_counties_data['county'].unique()],
+            placeholder='Select a county',
             style={
                 "font-family": "Helvetica",
                 'fontSize': '14px'
@@ -341,7 +330,7 @@ app.layout = html.Div(
             style={"width": "100%", "height": "100vh", "border": "none"},
         ),
         html.Div(
-            children="Select a species from the dropdown list above the map.",
+            children="Select a county from the dropdown list above the map.",
             id="map-textbox",
             style={
                 "font-family": "Helvetica",
@@ -368,18 +357,16 @@ app.layout = html.Div(
     Input('user-dropdown', 'value'),
     prevent_initial_call=True,
 )
-def update_map(selected_species):
-    if selected_species:
-        new_all_species_data, new_species_polygon_data, zoom = fetch_specific_species_data(selected_species)
+def update_map(selected_county):
+    if selected_county:
+        new_all_county_data, new_county_polygon_data, zoom = fetch_specific_counties_data(selected_county)
         
         # Generate the map and save to HTML
-        new_map_filepath = create_new_kepler_map(new_all_species_data, new_species_polygon_data, zoom)
+        new_map_filepath = create_new_kepler_map(new_all_county_data, new_county_polygon_data, zoom)
 
         # Read the HTML content
         with open(new_map_filepath, "r") as f:
             new_map_html = f.read()
-
-        # threading.Thread(target=fmapi_stream, args=(selected_species,), daemon=True).start()
 
         return new_map_html #, False  # Update iframe with new map data
     
@@ -392,10 +379,10 @@ def update_map(selected_species):
     State("user-dropdown", "value"),
     prevent_initial_call=True
 )
-def start_text_update(srcDoc, selected_species):
-    print("START TEXT UPDATE selected_species:", selected_species)
-    if selected_species:
-        threading.Thread(target=fmapi_stream, args=(selected_species,)).start()
+def start_text_update(srcDoc, selected_county):
+    print("START TEXT UPDATE selected_county:", selected_county)
+    if selected_county:
+        threading.Thread(target=fmapi_stream, args=(selected_county,)).start()
         print("Turning on the interval-component")
         return False 
     else:
@@ -410,13 +397,6 @@ def update_response(n_intervals):
     global response_list
     global stream_complete
 
-    # print("len(response_list)", len(response_list), "n_intervals", n_intervals)
-
-    # if n_intervals < 100:
-    #     return f"THIS IS A TEST, {n_intervals}", False
-    # else:
-    #     return f"THIS TEST IS OVER, {n_intervals}", True
-
     if not stream_complete:
         # print("STREAM IS IN PROCESS")
         return "".join([x for x in response_list if x is not None]), False
@@ -428,20 +408,6 @@ def update_response(n_intervals):
             return "".join(final_results), True
         response_list = []
         return dash.no_update, True
-    
-    # # Collect streamed chunks
-    # if len(response_list)==0:
-    #     # print("RESPONSE LIST IS LEN 0")
-    #     return "", False
-    # elif response_list[-1] is None:
-    #     # print("REPONSE IS COMPLETE")
-    #     final_response = "".join(response_list[:-1])
-    #     response_list = []
-    #     # print("THIS SHOULD BE EMPTY", response_list)
-    #     return final_response, True
-    # else:
-    #     # print("RESPONSE IS CHUGGING ALONG")
-    #     return "".join(response_list), False
 
 if __name__ == "__main__":
     app.run_server(debug=True)
