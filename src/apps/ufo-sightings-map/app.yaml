@@ -7,3 +7,5 @@ env:
   valueFrom: "sql_warehouse"
 - name: "DATABRICKS_ENDPOINT"
   valueFrom: "serving_endpoint"
+- name: "SERVING_PAT"
+  valueFrom: "secret"  

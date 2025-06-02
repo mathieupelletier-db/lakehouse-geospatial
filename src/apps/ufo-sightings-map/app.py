@@ -17,6 +17,8 @@ import threading
 import datetime as dt
 import time
 
+import requests
+
 mapState = {
     "bearing": 0,
     "dragRotate": False,
@@ -93,7 +95,7 @@ def sqlQuery(query: str) -> pd.DataFrame:
             df = pd.DataFrame(rows, columns=columns)
         return df
 
-def fmapi_stream(selected_species):
+def fmapi_stream(selected_county):
     global response_list
     global stream_complete
 
@@ -101,13 +103,21 @@ def fmapi_stream(selected_species):
     response_list = []
     stream_complete = False
 
-    if selected_species:
+    if selected_county:
+
+        query = f"""SELECT datetime, comments, duration_seconds, city, state, shape
+                            FROM mpelletier.summit.enriched_ufo_sightings
+                            WHERE county = '{selected_county.replace("'","''")}'
+                            """
+        sightings = sqlQuery(query)
+
         # return f"The selected species is {selected_species}"
         databricks_host = os.getenv("DATABRICKS_HOST")
-        databricks_token = os.getenv("DATABRICKS_TOKEN")
-        model = 'databricks-meta-llama-3-3-70b-instruct'
+        databricks_token = os.getenv("SERVING_PAT")
+        model = 'databricks-claude-3-7-sonnet'
         # model = 'databricks-dbrx-instruct'
-        endpoint = f"{databricks_host}/serving-endpoints/{model}/invocations"
+        #endpoint = os.getenv("DATABRICKS_ENDPOINT")
+        endpoint = f"https://{databricks_host}/serving-endpoints/{model}/invocations"
 
         # Define the headers, including the authorization token
         headers = {
@@ -119,14 +129,14 @@ def fmapi_stream(selected_species):
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "You are an expert on fish, wildlife, and plantlife."},
-                {"role": "user", "content": f"Describe the following species in a couple of sentences, including details on it's common range and the type of terrain on which it thrives: {selected_species}."}
+                {"role": "system", "content": "You are an expert on UFO. You will need to determine possible explanations based on the following fields: datetime, comments, duration_seconds, city, state, shape"},
+                {"role": "user", "content": f"Can you explain what would be the best explanation for these ufo sightings: {sightings.to_csv(index=False)}"}
             ],
             "max_tokens": 256,
             "stream": True  # Enable streaming
         }
 
-        # print(endpoint, payload)
+        print(endpoint, headers, payload)
         # Make the POST request with streaming enabled
         response = requests.post(endpoint, headers=headers, data=json.dumps(payload), stream=True)
         print(response)
@@ -154,12 +164,12 @@ def fmapi_stream(selected_species):
     print("SETTING STREAM COMPLETE TO TRUE")
     stream_complete = True
 
-# Fetch the all species data
+# Fetch the all counties data
 def fetch_all_counties_data():
     stime = dt.datetime.now()
     try:
         data = sqlQuery("""SELECT h3_h3tostring(h3.cellid) as hex_id, county, sightings, id
-                            FROM mpelletier.summit.enriched_counties;
+                            FROM mpelletier.summit.enriched_counties
                         """)
         # Convert any ndarray columns to lists
         for col in data.columns:
@@ -171,26 +181,26 @@ def fetch_all_counties_data():
     print(f"ALL COUNTIES QUERY TOOK:    {dt.datetime.now() - stime}")
     return data
 
-# Fetch the specific species data
-def fetch_specific_counties_data(selected_species):
+# Fetch the specific counties data
+def fetch_specific_counties_data(selected_county):
     try:
-        print(selected_species) 
+        print(selected_county) 
         stime = dt.datetime.now()
         query = f"""SELECT count(*) as ct
-                            FROM justinm.geospatial.doi_species_explode
-                            WHERE COMNAME = '{selected_species.replace("'","''")}'
+                            FROM mpelletier.summit.enriched_ufo_sightings
+                            WHERE county = '{selected_county.replace("'","''")}'
                 """
         count_df = sqlQuery(query)
         print(f"COUNT QUERY TOOK:    {dt.datetime.now() - stime}")
         count = (count_df['ct'].iloc[0])
 
-        if count<20000:
+        if count<10:
             resolution = 7
             zoom = 7
-        elif count<50000:
+        elif count<100:
             resolution = 6
             zoom = 6
-        elif count<200000:
+        elif count<1000:
             resolution = 6
             zoom = 5
         else:
@@ -199,10 +209,10 @@ def fetch_specific_counties_data(selected_species):
         print(f"Count: {count}, Resolution: {resolution}")
 
         stime = dt.datetime.now()
-        query = f"""SELECT h3_h3tostring(h3_toparent(h3, {resolution})) as hex_id,array_distinct(array_agg(COMNAME)) as species, size(array_distinct(array_agg(COMNAME))) as count
-                            FROM justinm.geospatial.doi_species_explode
-                            WHERE COMNAME = '{selected_species.replace("'","''")}'
-                            GROUP BY hex_id"""
+        query = f"""SELECT h3_h3tostring(h3.cellid) as hex_id,geometry as polygon, county, sightings, id
+                            FROM mpelletier.summit.enriched_counties
+                            WHERE county = '{selected_county.replace("'","''")}'
+                """
         h3data = sqlQuery(query)
         print(f"H3 QUERY TOOK:       {dt.datetime.now() - stime}")
         # Convert any ndarray columns to lists
@@ -211,9 +221,9 @@ def fetch_specific_counties_data(selected_species):
                 h3data[col] = h3data[col].apply(list)
 
         stime = dt.datetime.now()
-        query = f"""SELECT wkt_polygon as wkt, COMNAME as species
-                            FROM justinm.geospatial.doi_species_h3_array
-                            WHERE COMNAME = '{selected_species.replace("'","''")}'
+        query = f"""SELECT geometry as wkt, county, datetime, comments, duration_seconds, airport_closed_by, urban, latitude, longitude
+                            FROM mpelletier.summit.enriched_ufo_sightings
+                            WHERE county = '{selected_county.replace("'","''")}'
                             """
         polygondata = sqlQuery(query)
         print(f"POLYGON QUERY TOOK:  {dt.datetime.now() - stime}")
@@ -260,34 +270,51 @@ def create_kepler_map(first_data, filepath="kepler_map.html"):
 
 def create_new_kepler_map(first_data, second_data, zoom, filepath="kepler_map.html"):
     stime = dt.datetime.now()
-    first_data[['latitude', 'longitude']] = first_data['hex_id'].apply(lambda x: pd.Series(h3.cell_to_latlng(x)))
-    average_latitude = first_data['latitude'].mean()
-    average_longitude = first_data['longitude'].mean()
+    #first_data[['latitude', 'longitude']] = first_data['hex_id'].apply(lambda x: pd.Series(h3.cell_to_latlng(x)))
+    average_latitude = second_data['latitude'].mean()
+    average_longitude = second_data['longitude'].mean()
 
     map_ = KeplerGl(height=600, use_arrow=True)
     map_.add_data(data=first_data, name="all_counties")
-    map_.add_data(data=second_data, name="counties_polygons")
+    map_.add_data(data=second_data, name="points")
 
     mapState['latitude'] = average_latitude
     mapState['longitude'] = average_longitude
     mapState['zoom'] = zoom
 
+    visState['layers'][0] = {
+                "id": "county-layer",
+                "type": "geojson",
+                "config": {
+                    "dataId": "all_counties",
+                    "label": "WKT polygon",
+                    "columns": {"geojson": "polygon"},
+                    "isVisible": True,
+                    "visConfig": {
+                        "opacity": 0.8,
+                        "strokeColor": [234, 221, 208]
+                    },
+                },
+            }
     visState['layers'] = [visState['layers'][0]]
+    #print(visState)
     visState['layers'].append({
-                    "id": "polygon-layer",
+                    "id": "sightings-layer",
                     "type": "geojson",
                     "config": {
-                        "dataId": "counties_polygons",
-                        "label": "WKT Polygons",
+                        "dataId": "points",
+                        "label": "WKT points",
                         "color": [30, 150, 190],
                         "columns": {"geojson": "wkt"},
                         "isVisible": True,
                         "visConfig": {
                             "opacity": 0.8,
                             "strokeColor": [0, 250, 25],
-                            "thickness": 0.8,
+                            "thickness": 4,
                             "strokeColorOpacity": 0.8,
                             "fillColor": [30, 150, 190],
+                            "radius": 1,
+                            "strokeWidth": 4
                         },
                     },
                 })
