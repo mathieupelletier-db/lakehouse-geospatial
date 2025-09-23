@@ -19,6 +19,9 @@ import time
 
 import requests
 
+catalog = "mpelletier"
+schema = "summit"
+
 mapState = {
     "bearing": 0,
     "dragRotate": False,
@@ -106,7 +109,7 @@ def fmapi_stream(selected_county):
     if selected_county:
 
         query = f"""SELECT datetime, comments, duration_seconds, city, state, shape
-                            FROM mpelletier.summit.enriched_ufo_sightings
+                            FROM {catalog}.{schema}.enriched_ufo_sightings
                             WHERE county = '{selected_county.replace("'","''")}'
                             """
         sightings = sqlQuery(query)
@@ -114,10 +117,8 @@ def fmapi_stream(selected_county):
         # return f"The selected species is {selected_species}"
         databricks_host = os.getenv("DATABRICKS_HOST")
         databricks_token = os.getenv("SERVING_PAT")
-        model = 'databricks-claude-3-7-sonnet'
-        # model = 'databricks-dbrx-instruct'
-        #endpoint = os.getenv("DATABRICKS_ENDPOINT")
-        endpoint = f"https://{databricks_host}/serving-endpoints/{model}/invocations"
+        #model = 'databricks-claude-3-7-sonnet'
+        endpoint = os.getenv("DATABRICKS_ENDPOINT")
 
         # Define the headers, including the authorization token
         headers = {
@@ -169,7 +170,7 @@ def fetch_all_counties_data():
     stime = dt.datetime.now()
     try:
         data = sqlQuery("""SELECT h3_h3tostring(h3.cellid) as hex_id, county, sightings, id
-                            FROM mpelletier.summit.enriched_counties
+                            FROM {catalog}.{schema}.enriched_counties
                         """)
         # Convert any ndarray columns to lists
         for col in data.columns:
@@ -187,7 +188,7 @@ def fetch_specific_counties_data(selected_county):
         print(selected_county) 
         stime = dt.datetime.now()
         query = f"""SELECT count(*) as ct
-                            FROM mpelletier.summit.enriched_ufo_sightings
+                            FROM {catalog}.{schema}.enriched_ufo_sightings
                             WHERE county = '{selected_county.replace("'","''")}'
                 """
         count_df = sqlQuery(query)
@@ -210,7 +211,7 @@ def fetch_specific_counties_data(selected_county):
 
         stime = dt.datetime.now()
         query = f"""SELECT h3_h3tostring(h3.cellid) as hex_id,geometry as polygon, county, sightings, id
-                            FROM mpelletier.summit.enriched_counties
+                            FROM {catalog}.{schema}.enriched_counties
                             WHERE county = '{selected_county.replace("'","''")}'
                 """
         h3data = sqlQuery(query)
@@ -222,7 +223,7 @@ def fetch_specific_counties_data(selected_county):
 
         stime = dt.datetime.now()
         query = f"""SELECT geometry as wkt, county, datetime, comments, duration_seconds, airport_closed_by, urban, latitude, longitude
-                            FROM mpelletier.summit.enriched_ufo_sightings
+                            FROM {catalog}.{schema}.enriched_ufo_sightings
                             WHERE county = '{selected_county.replace("'","''")}'
                             """
         polygondata = sqlQuery(query)
@@ -239,7 +240,7 @@ def fetch_specific_counties_data(selected_county):
 
 def fetch_distinct_counties_data():
     try:
-        data = sqlQuery("SELECT DISTINCT county FROM mpelletier.summit.enriched_ufo_sightings ORDER BY county")
+        data = sqlQuery("SELECT DISTINCT county FROM {catalog}.{schema}.enriched_ufo_sightings ORDER BY county")
         # Convert any ndarray columns to lists
         for col in data.columns:
             if isinstance(data[col].iloc[0], np.ndarray):

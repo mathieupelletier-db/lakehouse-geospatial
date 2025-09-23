@@ -4,8 +4,8 @@ command: [
 ]
 env:
 - name: "DATABRICKS_WAREHOUSE_ID"
-  valueFrom: "sql_warehouse"
+  valueFrom: "sql-warehouse"
 - name: "DATABRICKS_ENDPOINT"
-  valueFrom: "serving_endpoint"
+  valueFrom: "serving-endpoint"
 - name: "SERVING_PAT"
   valueFrom: "secret"  
