@@ -164,11 +164,11 @@ def calc_ZoomInfo(dfMapItem:DFMapItem, debug_level:int=0) -> ZoomInfo:
       .withColumn("pnt_ne", F.expr("st_astext(st_point(xmax,ymax))"))
       .withColumn(
         "width_meters", 
-        F.expr("st_geoglength(st_astext(st_makeline(array( st_geomfromtext(pnt_sw), st_geomfromtext(pnt_se) ))))")
+        F.expr("st_geolength(st_astext(st_makeline(array( st_geomfromtext(pnt_sw), st_geomfromtext(pnt_se) ))))")
       )
       .withColumn(
         "height_meters", 
-        F.expr("st_geoglength(st_astext(st_makeline(array( st_geomfromtext(pnt_sw), st_geomfromtext(pnt_nw) ))))")
+        F.expr("st_geolength(st_astext(st_makeline(array( st_geomfromtext(pnt_sw), st_geomfromtext(pnt_nw) ))))")
       )
       .withColumn(
         "max_meters", 
